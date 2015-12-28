@@ -2,7 +2,9 @@
 title: "Harmful historical weather events in the US"
 author: "Miguel Morales"
 date: "December 27, 2015"
-output: html_document
+output: 
+  html_document:
+    keep_md: true
 ---
 
 On this document, we will be briefly analyzing US weather data. We will be particularly
