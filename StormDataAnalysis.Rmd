@@ -1,0 +1,186 @@
+---
+title: "Harmful historical weather events in the US"
+author: "Miguel Morales"
+date: "December 27, 2015"
+output: html_document
+---
+
+On this document, we will be briefly analyzing US weather data. We will be particularly
+looking for information about harmful event since 1950 till recent years that have hit the country.
+
+For this, we will be using [Government weather data](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2) freely available.
+
+## Require Packages
+
+There are a couple of packages that we will be using throughout this analysis. Here is the list of them:
+
+```{r}
+require(dplyr)
+require(reshape2)
+require(ggplot2)
+require(gridExtra)
+```
+
+## Data Processing
+
+This dataset presents several issues that we need to deal with it. Since we will working with 'dplyr', we will be converting the data frame into a table data frame object.
+
+```{r}
+df <- read.csv("repdata-data-StormData.csv.bz2")
+data <- tbl_df(df)
+```
+
+First, lets take a look at the dataset dimensions and column names:
+
+```{r}
+dim(data)
+names(data)
+```
+
+Let's have a little deeper look at the data:
+
+```{r}
+summary(data)
+data
+```
+
+It seems that the most important columns are:
+
+* EVTYPE
+* FATALITIES
+* INJURIES
+* PROPDMG
+* PROPDMGEXP
+* CROPDMG
+* CROPDMGEXP
+
+Let's reduce the dataset to use only these columns:
+
+```{r}
+data <- select(data,
+               EVTYPE,
+               BGN_DATE,
+               END_DATE,
+               STATE,
+               FATALITIES,
+               INJURIES,
+               PROPDMG,
+               PROPDMGEXP,
+               CROPDMG,
+               CROPDMGEXP)
+```
+
+We need to make sure there are no missing values on the Event type column:
+
+```{r}
+any(is.na(data$EVTYPE))
+```
+
+No missing values on this columns. How about bad data?
+
+```{r}
+summary(data$EVTYPE)
+(summarize(group_by(data, EVTYPE), n()) %>% arrange(desc(`n()`)))[1:20,]
+```
+
+There are several repeated Event Types, E.g.: TSTM WIND, THUNDERSTORM WIND, THUNDERSTORM WINDS. We will try to normalize these fields:
+
+```{r}
+data[data$EVTYPE == "TSTM WIND" | data$EVTYPE == "THUNDERSTORM WINDS", ]$EVTYPE = factor("THUNDERSTORM WIND")
+data[data$EVTYPE == "MARINE TSTM WIND", ]$EVTYPE = factor("MARINE THUNDERSTORM WIND")
+data[data$EVTYPE == "HURRICANE", ]$EVTYPE = factor("HURRICANE/TYPHOON")
+data[data$EVTYPE == "RIVER FLOOD", ]$EVTYPE = factor("FLOOD")
+```
+
+Let's now fix the dates:
+```{r}
+data <- mutate(data, BGN_DATE = as.Date(BGN_DATE, format = "%m/%d/%Y"))
+data <- mutate(data, END_DATE = as.Date(END_DATE, format = "%m/%d/%Y"))
+```
+
+It seems that PROPDMGEXP, and CROPDMGEXP have some issues:
+```{r}
+summary(data$PROPDMGEXP)
+summary(data$CROPDMGEXP)
+```
+
+There should only be "K" for Thousands, "M" for Millions, "B" for Billions. Let's clean that up:
+```{r}
+data <- filter(data, PROPDMGEXP == "K" | PROPDMGEXP == "M" | PROPDMGEXP == "B" | PROPDMGEXP == "")
+data <- filter(data, CROPDMGEXP == "K" | CROPDMGEXP == "M" | CROPDMGEXP == "B" | CROPDMGEXP == "")
+data <- mutate(data, PROPDMGEXP = factor(PROPDMGEXP, levels = c("", "K", "M", "B")))
+data <- mutate(data, CROPDMGEXP = factor(CROPDMGEXP, levels = c("", "K", "M", "B")))
+data[data$PROPDMGEXP == "K",] <- filter(data, PROPDMGEXP == "K") %>% mutate(PROPDMG = PROPDMG * 1000)
+data[data$PROPDMGEXP == "M",] <- filter(data, PROPDMGEXP == "M") %>% mutate(PROPDMG = PROPDMG * 1000000)
+data[data$PROPDMGEXP == "B",] <- filter(data, PROPDMGEXP == "B") %>% mutate(PROPDMG = PROPDMG * 1000000000)
+data[data$CROPDMGEXP == "K",] <- filter(data, CROPDMGEXP == "K") %>% mutate(CROPDMG = CROPDMG * 1000)
+data[data$CROPDMGEXP == "M",]  <- filter(data, CROPDMGEXP == "M") %>% mutate(CROPDMG = CROPDMG * 1000000)
+data[data$CROPDMGEXP == "B",]  <- filter(data, CROPDMGEXP == "B") %>% mutate(CROPDMG = CROPDMG * 1000000000)
+tidy_data <- select(data,
+               -PROPDMGEXP,
+               -CROPDMGEXP)
+```
+
+I think this is a much cleaner data set, let's find answers to our questions.
+```{r}
+summary(tidy_data)
+tidy_data
+```
+
+
+
+## Results
+There should be a section titled Results in which your results are presented.
+
+1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+
+Let's explore the data into this question:
+```{r}
+health <- summarize(group_by(tidy_data, EVTYPE), sum(FATALITIES), sum(INJURIES))
+names(health) <- c("type", "fatalities", "injuries")
+top_health <- arrange(health, desc(fatalities), desc(injuries))[1:10,]
+top_health
+```
+
+Let's plot this:
+```{r fig.width=10, fig.height=6,}
+fatal_plot <- ggplot(top_health, aes(x = type, y = fatalities)) + geom_bar(stat="identity") +
+xlab("Event Type") + ylab("Total Fatalities") + ggtitle("Total Fatalities per Event Type") +
+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+injure_plot <- ggplot(top_health, aes(x = type, y = injuries)) + geom_bar(stat="identity") +
+xlab("Event Type") + ylab("Total Injuries") + ggtitle("Total Injuries per Event Type") +
+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+grid.arrange(fatal_plot, injure_plot, ncol=2)
+```
+
+It seems that Tornados are the biggest cause of personal health issues in the US.
+
+2. Across the United States, which types of events have the greatest economic consequences?
+
+Let's explore the data into this question:
+```{r}
+damage <- summarize(group_by(tidy_data, EVTYPE), sum(PROPDMG), sum(CROPDMG))
+names(damage) <- c("type", "property", "crop")
+damage <- mutate(damage, total = property + crop)
+top_damage <- arrange(damage, desc(total), desc(property), desc(crop))[1:10,]
+top_damage <- select(top_damage, type, property, crop)
+top_damage <- mutate(top_damage, property = property / 1000000)
+top_damage <- mutate(top_damage, crop = crop / 1000000)
+top_damage <- melt(top_damage, id.var="type")
+top_damage
+```
+
+And the plot that would give us the answer.
+```{r fig.width=10, fig.height=6,}
+ggplot(top_damage, aes(x = type, y = value, fill = variable)) + 
+geom_bar(stat="identity") +
+scale_fill_discrete(name="Damage Type") +
+xlab("Event Type") + ylab("Total Damage (in Millions of Dollars)") + 
+ggtitle("Total Damage per Event Type") +
+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+It seems that Flood is the biggest cause of money damage on a weather event.
+
